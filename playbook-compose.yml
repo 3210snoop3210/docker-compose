@@ -1,12 +1,12 @@
 ---
-- name: Configure remote host for Docker
+- name: Configure remote host for Docker on Red Hat 9
   hosts: all
   become: true
   vars:
-    new_hostname: "my-docker-host"  # Replace with your desired hostname
+    new_hostname: "docker-compose-host"  # Replace with your desired hostname
     docker_user: "dockeruser"
     docker_repo: "https://github.com/3210snoop3210/docker-compose.git"  # Replace with your repository URL
-    docker_compose_file: "Docker_compose_sql.yaml"  # Replace with your Docker Compose file name
+    docker_compose_file: "docker-compose.yml"  # Replace with your Docker Compose file name
 
   tasks:
 
@@ -21,27 +21,32 @@
         name: Europe/Kiev
 
     # Create Docker user
-    - name: Create Docker user
+    - name: Create a user for Docker
       user:
         name: "{{ docker_user }}"
-        shell: /bin/bash
-        createhome: yes
+        groups: docker
+        append: yes
 
     # Add docker repos
     - name: Add Docker repos
-      shell:  yum-config-manager --add-repo=https://download.docker.com/linux/centos/docker-ce.repo
-      become_user: root
+      yum_repository:
+        name: docker-ce
+        description: Docker CE Repository
+        baseurl: https://download.docker.com/linux/centos/7/x86_64/stable
+        gpgcheck: yes
+        gpgkey: https://download.docker.com/linux/centos/gpg
 
     # Install Docker and Docker Compose
     - name: Install Docker
       yum:
-        name:
+        name: "{{ item }}"
+        state: latest
+      loop:
         - docker-ce 
         - docker-ce-cli
         - containerd.io
         - docker-buildx-plugin
         - docker-compose-plugin
-        state: latest
       become_user: root
 
     # Configure Docker user to use Docker without sudo
@@ -60,12 +65,16 @@
         - 80
         - 443
 
+    # Reload firewall to apply changes
+    - name: Reload firewall to apply changes
+      command: firewall-cmd --reload
+
     # Clone Docker Compose repository
     - name: Clone Docker Compose repository
       git:
         repo: "{{ docker_repo }}"
         dest: /home/{{ docker_user }}/{{ docker_repo | basename }}"
-        update: yes
+        version: main
       become_user: "{{ docker_user }}"
 
     # Run Docker Compose file
