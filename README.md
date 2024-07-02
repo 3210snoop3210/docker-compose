@@ -26,3 +26,4 @@ https://github.com/3210snoop3210/docker-compose.git
 Warning: before run on Ubuntu hosts please ensure that your ansible /etc/ansible/ansible.cfg file containts those strings because of git clone issue:
 allow_world_readable_tmpfiles = True
 pipelining = True
+Please check all on Ubuntu server EC2 AWS hosts:  ec2-3-91-27-48.compute-1.amazonaws.com or using public Ip: 3.91.27.48
