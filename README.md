@@ -20,5 +20,9 @@ For docker compose tests task
 
 4) I was create public repo in my github account with all files:
 https://github.com/3210snoop3210/docker-compose.git
-5) Run ansible playbook from Virtualbox Linus Virtual machine ansible to setup all steps
-6) Please, check all in remove host to remove from my side from AWS
+
+6) Run ansible playbook from Virtualbox Linus Virtual machine ansible to setup all steps
+7) Please, check all in remove host to remove from my side from AWS
+Warning: before run on Ubuntu hosts please ensure that your ansible /etc/ansible/ansible.cfg file containts those strings because of git clone issue:
+allow_world_readable_tmpfiles = True
+pipelining = True
