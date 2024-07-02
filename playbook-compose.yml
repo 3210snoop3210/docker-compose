@@ -1,13 +1,18 @@
 ---
-- name: Configure remote host for Docker on Red Hat 9
-  hosts: all
+- name: Configure remote host for Docker on Ubuntu Server 24
+  hosts: managed_nodes
   become: true
+  become_method: sudo
+  become_user: root
   vars:
     new_hostname: "docker-compose-host"  # Replace with your desired hostname
-    docker_user: "dockeruser"
+    docker_user: "docker"
     docker_repo: "https://github.com/3210snoop3210/docker-compose.git"  # Replace with your repository URL
-    docker_compose_file: "docker-compose.yml"  # Replace with your Docker Compose file name
-
+    docker_compose_file: "Docker_compose_sql.yaml"  # Replace with your Docker Compose file name
+    open_ports:
+      - 22
+      - 80
+      - 443
   tasks:
 
     # Change hostname
@@ -27,28 +32,49 @@
         groups: docker
         append: yes
 
-    # Add docker repos
-    - name: Add Docker repos
-      yum_repository:
-        name: docker-ce
-        description: Docker CE Repository
-        baseurl: https://download.docker.com/linux/centos/7/x86_64/stable
-        gpgcheck: yes
-        gpgkey: https://download.docker.com/linux/centos/gpg
+    # Install Git
+    - name: Install Git
+      ansible.builtin.apt:
+        name: git
+        state: present
+    # Install required system packages
+    - name: Install required system packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg-agent
+          - software-properties-common
+          - curl
+          - lsb-release
+        state: present
+
+   # Add Docker's official GPG key
+    - name: Add Docker GPG key
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    # Add Docker repository
+    - name: Add Docker repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+        state: present
 
     # Install Docker and Docker Compose
-    - name: Install Docker
-      yum:
+    - name: Install Docker Engine, containerd, and Docker Compose
+      apt:
         name: "{{ item }}"
+        loop:
+          - docker.io
+          - docker-ce
+          - docker-ce-cli
+          - containerd
+          - docker-compose
         state: latest
-      loop:
-        - docker-ce 
-        - docker-ce-cli
-        - containerd.io
-        - docker-buildx-plugin
-        - docker-compose-plugin
-      become_user: root
-
+        become_user: root
+        
     # Configure Docker user to use Docker without sudo
     - name: Add Docker user to docker group
       usermod:
@@ -56,38 +82,67 @@
         groups: docker
 
     # Open ports 22, 80, and 443
-    - name: Open firewall ports
-      ansible.builtin.firewalld:
-        rule: allow
-        port: "{{ item }}"
-      with_items:
-        - 22
-        - 80
-        - 443
+    - name: Open ports using iptables
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "{{ item }}"
+        jump: ACCEPT
+      loop: "{{ open_ports }}"
 
-    # Reload firewall to apply changes
-    - name: Reload firewall to apply changes
-      command: firewall-cmd --reload
+    # Set permissions on a folder for correct clone from github
+    - name: Set permissions on a folder
+      ansible.builtin.file:
+        path: /home/{{ docker_user }}/docker-compose/
+        mode: "0755"
+        owner: docker
+        group: docker
+        recurse: yes
+        state: directory
 
-    # Clone Docker Compose repository
+     # Clone Docker Compose repository
     - name: Clone Docker Compose repository
-      git:
+      ansible.builtin.git:
         repo: "{{ docker_repo }}"
-        dest: /home/{{ docker_user }}/{{ docker_repo | basename }}"
-        version: main
+        dest: /home/{{ docker_user }}/docker-compose/
+        clone: no
+        update: yes
+        force: yes
+      become: yes
       become_user: "{{ docker_user }}"
+      become_method: sudo
 
-    # Run Docker Compose file
-    - name: Run Docker Compose file
-      become_user: "{{ docker_user }}"
-      shell: docker compose up -f /home/{{ docker_user }}/{{ docker_repo | basename }}/{{ docker_compose_file }} -d
-      become_user: "{{ docker_user }}"
-
-    # Enable Docker Compose to start on boot
-    - name: Enable Docker Compose to start on boot
-      systemd:
-        name: docker-compose@{{ docker_repo | basename }}
+    - name: Start Docker service
+      ansible.builtin.service:
+        name: docker
+        state: started
         enabled: yes
-        user: "{{ docker_user }}"
-        command: docker compose up -f /home/{{ docker_user }}/{{ docker_repo | basename }}/{{ docker_compose_file }} -d
-      become_user: root
+
+    - name: Enable Docker service on boot
+      ansible.builtin.service:
+        name: docker
+        enabled: yes
+
+    - name: Run Docker Compose file
+      ansible.builtin.shell: docker compose -f /home/{{ docker_user }}/docker-compose/{{ docker_compose_file }} up -d
+      become_user: "{{ docker_user }}"
+
+    - name: Create systemd service for Docker Compose
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/docker-compose-app.service
+        content: |
+          [Unit]
+          Description=Docker Compose Application Service
+          After=network.target docker.service
+          Requires=docker.service
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          WorkingDirectory=/home/{{ docker_user }}/{{ docker_user }}/docker-compose/
+          ExecStart=/usr/bin/docker-compose -f /home/{{ docker_user }}/docker-compose/{{ docker_compose_file }} up -d
+          ExecStop=/usr/bin/docker-compose -f /home/{{ docker_user }}/docker-compose/{{ docker_compose_file }} down
+          User={{ docker_user }}
+
+          [Install]
+          WantedBy=multi-user.target
