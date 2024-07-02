@@ -25,5 +25,3 @@ volumes:
 
 networks:
   my_network:
-
-name: ${PROJECT_NAME}
